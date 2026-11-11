@@ -1,0 +1,53 @@
+name: Record incidents
+
+# Runs each chaos scenario on a fresh Docker Compose system and uploads the recorded telemetry.
+on:
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: "Comma-separated scenario ids, or 'all'"
+        default: all
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ids
+        run: |
+          pip install -q pyyaml
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, yaml
+          wanted = "${{ inputs.scenarios }}".strip()
+          ids = [s["id"] for s in yaml.safe_load(open("chaos/scenarios.yaml"))["scenarios"]]
+          if wanted != "all":
+              ids = [i for i in ids if i in {w.strip() for w in wanted.split(",")}]
+          print("ids=" + json.dumps(ids))
+          PY
+
+  record:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJson(needs.plan.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q pyyaml
+      - name: Run scenario and record telemetry
+        run: python chaos/run_scenario.py ${{ matrix.scenario }} recordings/${{ matrix.scenario }}
+      - name: Service logs (debug)
+        if: failure()
+        run: docker compose -f infra/docker-compose.yml logs --tail 200
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: incident-${{ matrix.scenario }}
+          path: recordings/${{ matrix.scenario }}
+          if-no-files-found: warn

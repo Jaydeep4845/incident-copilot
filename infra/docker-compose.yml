@@ -1,0 +1,77 @@
+# System under test: 4 services + Postgres + Redis, with OpenTelemetry traces and Prometheus metrics.
+# Runs on a GitHub Actions runner (see .github/workflows/record.yml). Each app service reads its
+# version and settings from runtime/<service>.env, which the chaos runner rewrites to "deploy".
+
+x-app: &app
+  build: ../services
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_started }
+    otel-collector: { condition: service_started }
+  environment: &app-env
+    OTEL_ENDPOINT: http://otel-collector:4318
+    REDIS_HOST: redis
+    ORDERS_URL: http://orders:8000
+    INVENTORY_URL: http://inventory:8000
+    PAYMENTS_URL: http://payments:8000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: shop }
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=256MB"]
+    volumes: ["./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d shop"]
+      interval: 2s
+      retries: 60
+
+  redis:
+    image: redis:7-alpine
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    command: ["--config=/etc/otel/config.yml"]
+    user: "0:0"
+    volumes:
+      - ./otel-collector.yml:/etc/otel/config.yml:ro
+      - ./out:/out
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=1d"]
+    ports: ["9090:9090"]
+    volumes: ["./prometheus:/etc/prometheus:ro"]
+
+  gateway:
+    <<: *app
+    command: ["uvicorn", "sut.gateway:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    env_file: [runtime/gateway.env]
+    ports: ["8000:8000"]
+
+  orders:
+    <<: *app
+    command: ["uvicorn", "sut.orders:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    env_file: [runtime/orders.env]
+    ports: ["18001:8000"]  # chaos endpoints, used by the chaos runner only
+    cpus: 1.0
+
+  inventory:
+    <<: *app
+    command: ["uvicorn", "sut.inventory:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    env_file: [runtime/inventory.env]
+    mem_limit: 300m
+
+  payments:
+    <<: *app
+    command: ["uvicorn", "sut.payments:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    env_file: [runtime/payments.env]
+    ports: ["18003:8000"]  # chaos endpoints, used by the chaos runner only
+
+  loadgen:
+    build: ../services
+    command: ["python", "-m", "sut.loadgen"]
+    depends_on: [gateway]
+    restart: unless-stopped
+    environment: { GATEWAY_URL: "http://gateway:8000" }

@@ -1,0 +1,168 @@
+# Incident scenarios. Each one runs on a fresh system:
+#   warm-up -> baseline traffic -> steps (fault and any decoys) -> recording window.
+# `at` is seconds relative to the fault start (negative = during the baseline, e.g. decoy deploys).
+# Ground truth uses a fixed vocabulary so agent answers can be scored deterministically.
+#
+# categories: bad_deploy_code, bad_deploy_config, db_missing_index, db_lock_contention,
+#             dependency_down, slow_dependency, resource_exhaustion
+# components: gateway, orders, inventory, payments, postgres, redis, payment-provider
+
+defaults:
+  warmup_s: 60
+  baseline_s: 150
+  fault_s: 240
+
+scenarios:
+  - id: payments-currency-bug
+    difficulty: easy
+    ground_truth:
+      category: bad_deploy_code
+      component: payments
+      summary: payments 2.4.0 ships a fee table without EUR and INR, so those charges raise KeyError.
+    steps:
+      - { at: 0, action: deploy, service: payments, version: 2.4.0, set: { CURRENCY_BUG: "true" },
+          change: "Add multi-currency fee calculation" }
+
+  - id: orders-pool-shrunk
+    difficulty: medium
+    ground_truth:
+      category: bad_deploy_config
+      component: orders
+      summary: orders 1.9.0 cut the DB pool to 2 connections; checkouts hold a connection across calls, so the pool runs out.
+    steps:
+      - { at: 0, action: deploy, service: orders, version: 1.9.0, set: { DB_POOL_SIZE: "2" },
+          change: "Lower DB connections per instance to fit new connection budget" }
+
+  - id: migration-drops-index
+    difficulty: medium
+    ground_truth:
+      category: db_missing_index
+      component: postgres
+      summary: Migration 042 shipped with orders 1.9.1 dropped idx_orders_user_id; order-history queries do full table scans.
+    steps:
+      - { at: 0, action: deploy, service: orders, version: 1.9.1, set: {},
+          change: "Migration 042: rebuild order indexes (step 1 of 2: drop idx_orders_user_id)" }
+      - { at: 5, action: sql, sql: "DROP INDEX IF EXISTS idx_orders_user_id" }
+
+  - id: index-dropped-no-deploy
+    difficulty: hard
+    ground_truth:
+      category: db_missing_index
+      component: postgres
+      summary: idx_orders_user_id was dropped manually (no deploy); order-history queries do full table scans.
+    steps:
+      - { at: -60, action: deploy, service: inventory, version: 1.8.1, set: {},
+          change: "Structured logging: add sku to reservation log lines" }
+      - { at: 0, action: sql, sql: "DROP INDEX IF EXISTS idx_orders_user_id" }
+
+  - id: redis-hang
+    difficulty: medium
+    ground_truth:
+      category: dependency_down
+      component: redis
+      summary: Redis stopped responding; every stock lookup waits for the 1 s cache timeout before falling back to Postgres.
+    steps:
+      - { at: 0, action: pause, service: redis }
+
+  - id: redis-hang-after-deploy
+    difficulty: hard
+    ground_truth:
+      category: dependency_down
+      component: redis
+      summary: Redis stopped responding shortly after an unrelated inventory deploy; stock lookups hit the 1 s cache timeout.
+    steps:
+      - { at: -45, action: deploy, service: inventory, version: 1.8.1, set: {},
+          change: "Bump redis-py client to 5.2.1" }
+      - { at: 0, action: pause, service: redis }
+
+  - id: payment-provider-slow
+    difficulty: hard
+    ground_truth:
+      category: slow_dependency
+      component: payment-provider
+      summary: The external payment provider slowed to ~2.5 s; orders holds DB connections while waiting, exhausting its pool.
+    steps:
+      - { at: 0, action: http, url: "http://localhost:18003/__chaos/provider?latency_ms=2500" }
+
+  - id: payment-provider-errors
+    difficulty: medium
+    ground_truth:
+      category: dependency_down
+      component: payment-provider
+      summary: The external payment provider started rejecting ~40% of authorizations with upstream 503s.
+    steps:
+      - { at: -30, action: deploy, service: gateway, version: 3.1.1, set: {},
+          change: "Update CORS allow-list" }
+      - { at: 0, action: http, url: "http://localhost:18003/__chaos/provider?error_rate=0.4" }
+
+  - id: gateway-retry-storm
+    difficulty: hard
+    ground_truth:
+      category: bad_deploy_config
+      component: gateway
+      summary: gateway 3.2.0 retries failed checkouts 4 times with no backoff; a small rise in provider errors is amplified into overload of orders.
+    steps:
+      - { at: -40, action: deploy, service: gateway, version: 3.2.0, set: { CHECKOUT_RETRIES: "4", RETRY_BACKOFF_S: "0" },
+          change: "Improve checkout resilience: retry failed orders up to 4 times" }
+      - { at: 0, action: http, url: "http://localhost:18003/__chaos/provider?error_rate=0.12&latency_ms=400" }
+
+  - id: db-lock-contention
+    difficulty: medium
+    ground_truth:
+      category: db_lock_contention
+      component: postgres
+      summary: A long-running maintenance transaction holds row locks on inventory; reservations hit the 3 s statement timeout.
+    steps:
+      - { at: 0, action: sql_background,
+          sql: "BEGIN; UPDATE inventory SET stock = stock WHERE sku <= 'SKU-120'; SELECT pg_sleep(900); COMMIT;" }
+
+  - id: orders-cpu-runaway
+    difficulty: hard
+    ground_truth:
+      category: resource_exhaustion
+      component: orders
+      summary: A runaway report-export job inside orders pins the CPU, slowing every orders request.
+    steps:
+      - { at: -50, action: deploy, service: payments, version: 2.3.2, set: {},
+          change: "Upgrade payment provider SDK to 4.12" }
+      - { at: 0, action: http, url: "http://localhost:18001/__chaos/report-job?threads=3" }
+
+  - id: inventory-memory-leak
+    difficulty: medium
+    ground_truth:
+      category: bad_deploy_code
+      component: inventory
+      summary: inventory 1.9.0 keeps an unbounded in-memory audit trail; memory grows until the container is OOM-killed and restarts.
+    steps:
+      - { at: 0, action: deploy, service: inventory, version: 1.9.0, set: { AUDIT_LEAK_KB: "256" },
+          change: "Add in-memory audit trail of stock reservations" }
+
+  - id: orders-timeout-too-low
+    difficulty: hard
+    ground_truth:
+      category: bad_deploy_config
+      component: orders
+      summary: orders 1.9.2 set the downstream timeout to 90 ms, below normal payments latency, so many charges time out.
+    steps:
+      - { at: 0, action: deploy, service: orders, version: 1.9.2, set: { DOWNSTREAM_TIMEOUT_S: "0.09" },
+          change: "Fail fast: tighten downstream HTTP timeouts" }
+
+  - id: orders-bad-db-credentials
+    difficulty: easy
+    ground_truth:
+      category: bad_deploy_config
+      component: orders
+      summary: orders 1.9.3 shipped a rotated database password that Postgres does not accept.
+    steps:
+      - { at: 0, action: deploy, service: orders, version: 1.9.3,
+          set: { DATABASE_URL: "postgresql://app:rotated-2026-q4@postgres:5432/shop" },
+          change: "Rotate database credentials" }
+
+  - id: payments-crash
+    difficulty: easy
+    ground_truth:
+      category: dependency_down
+      component: payments
+      summary: The payments service is down; orders cannot reach it.
+    steps:
+      - { at: 0, action: stop, service: payments }
