@@ -49,7 +49,8 @@ def db(operation: str, sql: str, params: tuple, fetch: bool = False):
     update_pool_gauges()
     start = time.perf_counter()
     try:
-        with timed_dependency("postgres", operation), pool.connection() as conn:
+        # time the query only; waiting for a pool connection is tracked by the pool gauges
+        with pool.connection() as conn, timed_dependency("postgres", operation):
             cur = conn.execute(sql, params)
             rows = cur.fetchall() if fetch else None
     except psycopg_pool.PoolTimeout as exc:

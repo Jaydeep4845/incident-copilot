@@ -32,7 +32,8 @@ How to work:
 - Check recent deploys, but treat a deploy as the cause only if the timing AND the failing behaviour point
   to it (for example, errors from the deployed service's own code or settings). Unrelated deploys happen.
 - Confirm a hypothesis with at least two independent kinds of evidence (metrics, logs, traces, deploys).
-- If you are unsure what a symptom means, search the runbooks.
+- If you are unsure what a symptom means, search the runbooks with the exact error message or symptom
+  you observed (not with your own hypothesis), and test your hypothesis against what the runbook says.
 - Be efficient: a few targeted tool calls are better than many broad ones; do not repeat a call.
 
 When you are confident, call submit_report. Cite only evidence ids returned by tools (M, L, T, D, R, O).

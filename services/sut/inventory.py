@@ -7,7 +7,7 @@ import os
 import psycopg
 import redis
 from fastapi import HTTPException
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from psycopg_pool import ConnectionPool
 
 from sut.common import create_app, env_int, log, timed_dependency
@@ -15,6 +15,9 @@ from sut.common import create_app, env_int, log, timed_dependency
 app = create_app()
 
 CACHE = Counter("cache_requests_total", "Stock cache lookups", ["result"])
+POOL_IN_USE = Gauge("db_pool_connections_in_use", "Connections checked out of the pool")
+POOL_WAITING = Gauge("db_pool_requests_waiting", "Requests waiting for a pool connection")
+POOL_MAX = Gauge("db_pool_connections_max", "Pool size")
 cache = redis.Redis(
     host=os.environ.get("REDIS_HOST", "redis"),
     socket_connect_timeout=1.0,
@@ -29,13 +32,24 @@ pool = ConnectionPool(
     open=True,
 )
 
+POOL_MAX.set(env_int("DB_POOL_SIZE", 10))
+
+
+@app.middleware("http")
+async def pool_gauges(request, call_next):
+    stats = pool.get_stats()
+    POOL_IN_USE.set(stats.get("pool_size", 0) - stats.get("pool_available", 0))
+    POOL_WAITING.set(stats.get("requests_waiting", 0))
+    return await call_next(request)
+
+
 # Release 1.9.0 added an in-memory audit trail of reservations that is never trimmed.
 AUDIT_LEAK_KB = env_int("AUDIT_LEAK_KB", 0)
 _audit: list[bytes] = []
 
 
 def stock_from_db(sku: str) -> int:
-    with timed_dependency("postgres", "select_stock"), pool.connection() as conn:
+    with pool.connection() as conn, timed_dependency("postgres", "select_stock"):
         row = conn.execute(
             "SELECT stock - reserved FROM inventory WHERE sku = %s", (sku,)
         ).fetchone()
@@ -73,7 +87,7 @@ def reserve(sku: str, qty: int = 1) -> dict:
     if AUDIT_LEAK_KB:
         _audit.append(b"x" * AUDIT_LEAK_KB * 1024)
     try:
-        with timed_dependency("postgres", "reserve"), pool.connection() as conn:
+        with pool.connection() as conn, timed_dependency("postgres", "reserve"):
             conn.execute("UPDATE inventory SET reserved = reserved + %s WHERE sku = %s", (qty, sku))
     except psycopg.errors.QueryCanceled as exc:
         log.error(
