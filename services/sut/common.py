@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -143,6 +144,14 @@ def create_app() -> FastAPI:
             response = await call_next(request)
             status = response.status_code
             return response
+        except Exception as exc:
+            # One structured line instead of a multi-line traceback on stderr.
+            route = getattr(request.scope.get("route"), "path", request.url.path)
+            log.error(
+                f"unhandled {type(exc).__name__}: {exc} on {route}",
+                extra={"route": route, "status": 500, "error": type(exc).__name__},
+            )
+            return JSONResponse({"detail": "internal error"}, status_code=500)
         finally:
             route = request.scope.get("route")
             path = getattr(route, "path", request.url.path)

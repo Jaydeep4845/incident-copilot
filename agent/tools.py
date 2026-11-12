@@ -77,9 +77,9 @@ class Toolbox:
         return TOPOLOGY
 
     def service_overview(self) -> dict:
-        """Earlier vs last 3 minutes for each service: request rate, error ratio, p95 latency."""
+        """5+ minutes ago vs last 3 minutes for each service: request rate, errors, p95 latency."""
         recent_from = (self.inc.now - timedelta(minutes=3)).timestamp()
-        earlier_to = (self.inc.now - timedelta(minutes=8)).timestamp()
+        earlier_to = (self.inc.now - timedelta(minutes=5)).timestamp()
         rows = {}
         for metric in ("request_rate", "error_ratio", "latency_p95_s"):
             for s in self.inc.metric_series(metric):

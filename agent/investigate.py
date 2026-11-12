@@ -34,13 +34,28 @@ How to work:
 When you are confident, call submit_report. Cite only evidence ids returned by tools (M, L, T, D, R, O).
 The remediation must be one of the allowed actions and always needs human approval."""
 
+CATEGORY_GUIDE = (
+    "bad_deploy_code: a release introduced a code bug (exceptions, wrong behaviour). "
+    "bad_deploy_config: a release changed settings (timeouts, pool sizes, retries, credentials) that cause the failure. "
+    "db_missing_index: queries became slow because an index is missing (full table scans). "
+    "db_lock_contention: queries wait on locks held by another transaction. "
+    "dependency_down: a dependency fails on essentially every call (crashed, refusing connections, not responding, "
+    "every call timing out) or rejects a large share of requests with errors. "
+    "slow_dependency: a dependency still answers correctly but much slower than normal. "
+    "resource_exhaustion: CPU or memory of a service is exhausted without a bad release (e.g. runaway job)."
+)
+
 SUBMIT_SPEC = {
     "name": "submit_report",
     "description": "Submit the final root-cause report.",
     "parameters": {
         "type": "object",
         "properties": {
-            "cause_category": {"type": "string", "enum": [c.value for c in CauseCategory]},
+            "cause_category": {
+                "type": "string",
+                "enum": [c.value for c in CauseCategory],
+                "description": CATEGORY_GUIDE,
+            },
             "component": {
                 "type": "string",
                 "enum": [c.value for c in Component],
