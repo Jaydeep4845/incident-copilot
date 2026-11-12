@@ -113,7 +113,7 @@ class Toolbox:
             mean, sd = statistics.fmean(base), (statistics.pstdev(base) if len(base) > 1 else 0.0)
             threshold = max(3 * sd, 0.5 * abs(mean), 0.01)
             changed = next((t for t, v in vals[split:] if abs(v - mean) > threshold), None)
-            buckets = [vals[i * len(vals) // 12 : (i + 1) * len(vals) // 12] for i in range(12)]
+            buckets = [vals[i * len(vals) // 8 : (i + 1) * len(vals) // 8] for i in range(8)]
             spark = [round(statistics.fmean(v for _, v in b), 3) for b in buckets if b]
             summary = {
                 "labels": s["labels"],
@@ -121,12 +121,12 @@ class Toolbox:
                 "last_value": round(vals[-1][1], 3),
                 "max": round(max(v for _, v in vals), 3),
                 "changed_at": hms(parse_ts_epoch(changed)) if changed else None,
-                f"trend_{minutes:g}min_12_points": spark,
+                f"trend_{minutes:g}min_8_points": spark,
             }
             summary["id"] = self._id("M", f"{metric} {s['labels']}: {summary}")
             out.append(summary)
         if out:
-            return {"metric": metric, "series": out[:12]}
+            return {"metric": metric, "series": out[:8]}
         available = sorted(
             {v for s in self.inc.metric_series(metric) for v in s["labels"].values()}
         )
@@ -159,7 +159,7 @@ class Toolbox:
                 continue
             key = (r.get("service"), r.get("level"), template(msg))
             g = groups.setdefault(
-                key, {"count": 0, "first": ts, "last": ts, "example": msg[:240], "version": None}
+                key, {"count": 0, "first": ts, "last": ts, "example": msg[:160], "version": None}
             )
             g["count"] += 1
             g["last"] = max(g["last"], ts)
@@ -202,7 +202,7 @@ class Toolbox:
                 break
         out = []
         for t in picked:
-            spans = sorted(t["spans"], key=lambda s: -s["duration_ms"])[:6]
+            spans = sorted(t["spans"], key=lambda s: -s["duration_ms"])[:4]
             row = {
                 "root": t["root"],
                 "start": t["start"][11:19],

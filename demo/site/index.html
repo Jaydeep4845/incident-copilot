@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Copilot</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f8fafc; --panel: #fff; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0;
+    --accent: #2563eb; --good: #15803d; --good-bg: #f0fdf4; --bad: #b91c1c; --bad-bg: #fef2f2;
+    --warn-bg: #fffbeb; --warn: #92400e; --code: #f1f5f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1120; --panel: #111827; --ink: #e5e7eb; --muted: #94a3b8; --line: #1f2937;
+      --accent: #60a5fa; --good: #4ade80; --good-bg: #052e1a; --bad: #f87171; --bad-bg: #3b0d0d;
+      --warn-bg: #3a2a05; --warn: #fcd34d; --code: #1e293b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1240px; margin: 0 auto; padding: 22px 16px 48px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); margin: 0 0 14px; max-width: 950px; }
+  .lede b { color: var(--ink); }
+  .tabs { display: flex; gap: 6px; margin: 10px 0 16px; }
+  .tab { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px;
+         padding: 6px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  .tab.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .layout { display: grid; grid-template-columns: 260px 1fr; gap: 16px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+  .list button { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 6px;
+                 text-align: left; border: 0; border-radius: 8px; background: none; color: var(--ink);
+                 font: inherit; font-size: 13.5px; padding: 7px 8px; cursor: pointer; }
+  .list button:hover { background: var(--code); }
+  .list button.on { background: var(--code); font-weight: 600; }
+  .pill { font-size: 11px; border-radius: 999px; padding: 1px 8px; font-weight: 600; white-space: nowrap; }
+  .easy { background: var(--good-bg); color: var(--good); }
+  .medium { background: var(--warn-bg); color: var(--warn); }
+  .hard { background: var(--bad-bg); color: var(--bad); }
+  .ok { color: var(--good); } .miss { color: var(--bad); }
+  h2 { font-size: 18px; margin: 0 0 8px; }
+  h3 { font-size: 13px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .alert { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; background: var(--bad-bg);
+           border: 1px solid var(--bad); border-radius: 12px; padding: 10px 14px; }
+  .alert b { color: var(--bad); font-size: 16px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .chart { height: 210px; }
+  button.primary { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 8px 18px;
+                   background: var(--accent); color: #fff; cursor: pointer; }
+  button.ghost { font: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px;
+                 background: var(--panel); color: var(--ink); cursor: pointer; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .meta { color: var(--muted); font-size: 13px; }
+  ol.steps { list-style: none; padding: 0; margin: 10px 0 0; counter-reset: s; }
+  ol.steps li { border-left: 3px solid var(--accent); padding: 6px 0 6px 12px; margin-bottom: 8px;
+                animation: in .35s ease; }
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .tool { font-family: ui-monospace, Consolas, monospace; font-weight: 600; font-size: 13px; }
+  .args { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); }
+  details.res summary { cursor: pointer; font-size: 12.5px; color: var(--accent); margin-top: 2px; }
+  pre { background: var(--code); border-radius: 8px; padding: 8px 10px; font-size: 12px; white-space: pre-wrap;
+        word-break: break-word; max-height: 260px; overflow: auto; margin: 6px 0 0; }
+  .thought { font-size: 13px; font-style: italic; color: var(--muted); margin-top: 2px; }
+  .report { border: 2px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-top: 10px; }
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; font-size: 14px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .ev { font-size: 13.5px; margin: 4px 0; }
+  .ev code { background: var(--code); border-radius: 4px; padding: 0 5px; }
+  .verdict { margin-top: 12px; border-radius: 10px; padding: 10px 14px; font-weight: 600; }
+  .verdict.ok { background: var(--good-bg); } .verdict.miss { background: var(--bad-bg); }
+  .approval { margin-top: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .approved { color: var(--good); font-weight: 600; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  td.num { font-family: ui-monospace, Consolas, monospace; }
+  .bar { height: 8px; background: var(--accent); border-radius: 4px; }
+  .hidden { display: none; }
+  .note { color: var(--muted); font-size: 13.5px; max-width: 950px; }
+  .links a { color: var(--accent); margin-right: 14px; }
+  @media (max-width: 860px) {
+    .layout, .charts { grid-template-columns: 1fr; }
+    .kv { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Incident Copilot</h1>
+  <p class="lede">
+    An <b>AI on-call agent</b>. A real microservice system (4 services, Postgres, Redis) ran on GitHub Actions
+    with OpenTelemetry, Prometheus and structured logs while <b>15 production incidents</b> were injected:
+    bad deploys, a dropped index, lock contention, a hung cache, a failing payment provider, memory leaks and
+    decoy deploys. When the alert fires, the agent investigates the recorded telemetry with tools, the way an
+    engineer would, and writes a root-cause report with evidence. A human must approve any fix.
+  </p>
+  <div class="tabs">
+    <button class="tab on" data-tab="incidents">Investigations</button>
+    <button class="tab" data-tab="bench">Benchmark</button>
+    <button class="tab" data-tab="how">How it works</button>
+  </div>
+
+  <section id="tab-incidents" class="layout">
+    <nav class="panel list" id="list"></nav>
+    <div class="panel" id="detail"></div>
+  </section>
+
+  <section id="tab-bench" class="panel hidden"></section>
+
+  <section id="tab-how" class="panel hidden">
+    <h2>How it works</h2>
+    <p class="note"><b>1. Record real incidents.</b> For each scenario, a GitHub Actions runner starts the system
+      in Docker Compose, sends steady traffic, injects the fault (a deploy with a bug or bad setting, a SQL
+      change, a paused container, a degraded external provider) and records metrics, alerts, logs, traces and
+      deploy history. Decoy deploys happen in some scenarios, like in real life.</p>
+    <p class="note"><b>2. Investigate like an engineer.</b> When the first alert fires, the agent gets the page and
+      only the data available up to that moment. It calls tools: service overview, metrics, grouped logs,
+      slow and failing traces, deploy history, and semantic search over the team's runbooks. Every tool result
+      has an evidence id.</p>
+    <p class="note"><b>3. A report that can be checked.</b> The answer must use a fixed cause vocabulary and cite at
+      least two evidence ids the tools really returned; fabricated citations are rejected. Remediation is
+      limited to safe actions and always requires human approval.</p>
+    <p class="note"><b>4. Measured, not anecdotal.</b> Every incident has a known cause. The agent is compared with a
+      "blame the last deploy" rule and across several free LLMs, with confidence intervals.</p>
+    <p class="links">
+      <a href="https://github.com/Jaydeep4845/incident-copilot" target="_blank">Code</a>
+      <a href="https://huggingface.co/datasets/jc4845/incident-rca-bench" target="_blank">Incident dataset</a>
+    </p>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const COLORS = { gateway: "#2563eb", orders: "#dc2626", inventory: "#16a34a", payments: "#9333ea" };
+let DATA, charts = [], timer = null;
+
+function hhmm(t) { return new Date(t * 1000).toISOString().slice(11, 19); }
+
+function list() {
+  $("list").innerHTML = DATA.incidents.map((x, i) => `
+    <button data-i="${i}"><span>${x.score.correct ? '<span class="ok">✔</span>' : '<span class="miss">✘</span>'}
+      ${esc(x.id)}</span><span class="pill ${x.difficulty}">${x.difficulty}</span></button>`).join("");
+  $("list").querySelectorAll("button").forEach((b) => b.onclick = () => show(+b.dataset.i));
+}
+
+function chart(canvas, title, seriesList, alertTs, percent) {
+  return new Chart(canvas, {
+    type: "line",
+    data: { datasets: seriesList.map((s) => ({
+      label: s.service, data: s.points.map(([t, v]) => ({ x: t, y: percent ? v * 100 : v })),
+      borderColor: COLORS[s.service] || "#64748b", borderWidth: 1.6, pointRadius: 0, tension: .2 })) },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
+      plugins: { title: { display: true, text: title }, legend: { position: "bottom", labels: { boxWidth: 10 } },
+        tooltip: { callbacks: { title: (i) => hhmm(i[0].parsed.x) } } },
+      scales: { x: { type: "linear", ticks: { callback: (v) => hhmm(v), maxTicksLimit: 6 } },
+                y: { beginAtZero: true } },
+    },
+    plugins: [{ id: "alertLine", afterDraw(c) {
+      const x = c.scales.x.getPixelForValue(alertTs), { top, bottom } = c.chartArea, g = c.ctx;
+      g.save(); g.strokeStyle = "#dc2626"; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom);
+      g.stroke(); g.fillStyle = "#dc2626"; g.font = "11px sans-serif"; g.fillText("alert", x + 4, top + 10); g.restore();
+    } }],
+  });
+}
+
+function step(s, n) {
+  return `<li><div><span class="tool">${n}. ${esc(s.tool)}</span>
+    <span class="args">${esc(JSON.stringify(s.args)).slice(0, 160)}</span></div>
+    ${s.thought ? `<div class="thought">${esc(s.thought.slice(0, 300))}</div>` : ""}
+    <details class="res"><summary>what it found</summary><pre>${esc(typeof s.result === "string" ? s.result : JSON.stringify(s.result, null, 1))}</pre></details></li>`;
+}
+
+function reportHtml(x) {
+  const r = x.report, g = x.ground_truth;
+  if (!r) return `<div class="verdict miss">No valid report was produced.</div>`;
+  const ev = (r.evidence || []).map((e) => `<div class="ev"><code>${esc(e.id)}</code> ${esc(e.finding)}</div>`).join("");
+  const rem = r.remediation || {};
+  return `<div class="report">
+    <h2>Root-cause report</h2>
+    <div class="kv">
+      <div>Cause</div><div><b>${esc(r.cause_category)}</b> in <b>${esc(r.component)}</b></div>
+      <div>Explanation</div><div>${esc(r.root_cause)}</div>
+      <div>Confidence</div><div>${Math.round((r.confidence || 0) * 100)}%</div>
+      <div>Evidence</div><div>${ev}</div>
+      <div>Proposed fix</div><div><b>${esc(rem.action)}</b>${rem.target ? " → " + esc(rem.target) : ""}: ${esc(rem.rationale)}</div>
+    </div>
+    <div class="approval">
+      <button class="primary" id="approve">Approve fix</button><button class="ghost" id="reject">Reject</button>
+      <span class="meta">Nothing runs without a human decision.</span><span id="decision"></span>
+    </div>
+  </div>
+  <div class="verdict ${x.score.correct ? "ok" : "miss"}">
+    ${x.score.correct ? "✔ Correct" : "✘ Missed"}: the true cause was <b>${esc(g.category)}</b> in <b>${esc(g.component)}</b>.
+    <div class="meta" style="font-weight:400">${esc(g.summary)}</div>
+    ${x.baseline ? `<div class="meta" style="font-weight:400">"Blame the last deploy" rule answered:
+      ${esc(x.baseline.report.cause_category)} in ${esc(x.baseline.report.component)}
+      (${x.baseline.score.correct ? "correct" : "wrong"}).</div>` : ""}
+  </div>`;
+}
+
+function show(i) {
+  clearInterval(timer);
+  const x = DATA.incidents[i];
+  $("list").querySelectorAll("button").forEach((b) => b.classList.toggle("on", +b.dataset.i === i));
+  const alertTs = Date.parse(x.alert.first_firing) / 1000;
+  $("detail").innerHTML = `
+    <div class="alert"><b>🔔 ${esc(x.alert.alert)}</b><span>service <b>${esc(x.alert.service)}</b></span>
+      <span>fired at ${esc(x.alert.first_firing.slice(11, 19))} UTC</span></div>
+    <h3>What the on-call engineer sees</h3>
+    <div class="charts"><div class="chart"><canvas id="c1"></canvas></div><div class="chart"><canvas id="c2"></canvas></div></div>
+    <h3>Investigation by ${esc(x.model)}</h3>
+    <div class="controls"><button class="primary" id="play">▶ Play investigation</button>
+      <button class="ghost" id="all">Show all steps</button>
+      <span class="meta">${x.steps.length} steps · ${x.tokens.toLocaleString()} tokens · ${x.seconds}s</span></div>
+    <ol class="steps" id="steps"></ol><div id="report"></div>`;
+  charts.forEach((c) => c.destroy());
+  charts = [chart($("c1"), "Error ratio (%)", x.charts.error_ratio, alertTs, true),
+            chart($("c2"), "p95 latency (s)", x.charts.latency_p95_s, alertTs, false)];
+  const finish = () => {
+    $("report").innerHTML = reportHtml(x);
+    const decide = (txt) => $("decision").innerHTML = `<span class="approved">${txt}</span>`;
+    if ($("approve")) {
+      $("approve").onclick = () => decide("✔ Approved by on-call engineer: in production this would trigger the action through the deploy pipeline, with an audit log entry.");
+      $("reject").onclick = () => decide("Rejected: the agent's proposal is logged for the post-mortem.");
+    }
+  };
+  $("play").onclick = () => {
+    clearInterval(timer); $("steps").innerHTML = ""; $("report").innerHTML = "";
+    const shown = x.steps.filter((s) => s.tool !== "submit_report");
+    let n = 0;
+    timer = setInterval(() => {
+      if (n < shown.length) { $("steps").insertAdjacentHTML("beforeend", step(shown[n], n + 1)); n++; }
+      else { clearInterval(timer); finish(); }
+    }, 900);
+  };
+  $("all").onclick = () => {
+    clearInterval(timer);
+    $("steps").innerHTML = x.steps.filter((s) => s.tool !== "submit_report").map((s, k) => step(s, k + 1)).join("");
+    finish();
+  };
+}
+
+function bench() {
+  const rows = Object.entries(DATA.benchmark).sort((a, b) => b[1].root_cause_accuracy - a[1].root_cause_accuracy);
+  $("tab-bench").innerHTML = `<h2>Benchmark: ${DATA.incidents.length} recorded incidents with known causes</h2>
+    <p class="note">Correct = right cause category <i>and</i> right component. 95% confidence intervals by bootstrap.
+      Small sample: treat differences of a few points as noise.</p>
+    <table><thead><tr><th>System</th><th>Root-cause accuracy</th><th></th><th>95% CI</th><th>Component only</th>
+      <th>Easy / medium / hard</th><th>Avg steps</th><th>Avg tokens</th></tr></thead><tbody>
+    ${rows.map(([k, r]) => `<tr><td>${esc(k)}</td><td class="num"><b>${Math.round(r.root_cause_accuracy * 100)}%</b></td>
+      <td style="width:140px"><div class="bar" style="width:${r.root_cause_accuracy * 100}%"></div></td>
+      <td class="num">${Math.round(r.ci95[0] * 100)}–${Math.round(r.ci95[1] * 100)}%</td>
+      <td class="num">${Math.round(r.component_accuracy * 100)}%</td>
+      <td class="num">${["easy", "medium", "hard"].map((d) => Math.round(r.by_difficulty[d] * 100) + "%").join(" / ")}</td>
+      <td class="num">${r.avg_steps}</td><td class="num">${r.avg_tokens.toLocaleString()}</td></tr>`).join("")}
+    </tbody></table>`;
+}
+
+document.querySelectorAll(".tab").forEach((t) => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === t));
+  ["incidents", "bench", "how"].forEach((k) => $("tab-" + k).classList.toggle("hidden", k !== t.dataset.tab));
+});
+
+fetch("data.json").then((r) => r.json()).then((d) => { DATA = d; list(); bench(); show(0); });
+</script>
+</body>
+</html>

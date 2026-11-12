@@ -14,6 +14,10 @@ import httpx
 PROVIDERS = {
     "groq": ("https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY"),
     "cerebras": ("https://api.cerebras.ai/v1/chat/completions", "CEREBRAS_API_KEY"),
+    "gemini": (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "GEMINI_API_KEY",
+    ),
 }
 
 
@@ -61,15 +65,18 @@ class ChatClient:
                 time.sleep(5 * (attempt + 1))
                 continue
             if r.status_code == 429:
-                if "per day" in r.text:
+                if "per day" in r.text or "PerDay" in r.text:
                     raise QuotaExhausted(f"{self.model}: {r.text[:200]}")
                 time.sleep(min(float(r.headers.get("retry-after", 10)), 60))
                 continue
             if r.status_code >= 500:
                 time.sleep(5 * (attempt + 1))
                 continue
-            if r.status_code == 400 and "tool" in r.text and attempt < 2:
-                # occasional malformed tool call from the model: retry once
+            malformed = any(
+                k in r.text for k in ("Parsing failed", "tool call validation", "tool_use_failed")
+            )
+            if r.status_code == 400 and malformed and attempt < 4:
+                # the model produced a malformed tool call: sampling again usually fixes it
                 time.sleep(1)
                 continue
             if r.status_code >= 400:

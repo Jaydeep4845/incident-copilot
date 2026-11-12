@@ -41,7 +41,10 @@ def incidents(root: Path) -> list[Incident]:
 
 
 def run_system(system: str, inc: Incident, provider: str):
+    """system = 'last-deploy' | 'agent:<model>' | 'single:<model>', optionally 'agent@gemini:<model>'."""
     kind, _, model = system.partition(":")
+    kind, _, chosen = kind.partition("@")
+    provider = chosen or provider
     if kind == "last-deploy":
         return last_deploy(inc)
     client = ChatClient(model, provider)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -18,6 +19,7 @@ from agent.telemetry import Incident
 from agent.tools import TOOL_SPECS, Toolbox
 
 MAX_STEPS = 14
+KEEP_FULL_RESULTS = 3  # older tool results are compacted to their evidence summaries
 MAX_REPORT_RETRIES = 2
 
 SYSTEM_PROMPT = """You are an experienced on-call site reliability engineer investigating a production alert
@@ -34,7 +36,9 @@ How to work:
 - Confirm a hypothesis with at least two independent kinds of evidence (metrics, logs, traces, deploys).
 - If you are unsure what a symptom means, search the runbooks with the exact error message or symptom
   you observed (not with your own hypothesis), and test your hypothesis against what the runbook says.
-- Be efficient: a few targeted tool calls are better than many broad ones; do not repeat a call.
+- Be efficient: call several independent tools in the same turn (for example get_alert, service_overview,
+  search_logs and list_deploys together at the start). A few targeted calls beat many broad ones; never
+  repeat a call.
 
 When you are confident, call submit_report. Cite only evidence ids returned by tools (M, L, T, D, R, O).
 The remediation must be one of the allowed actions and always needs human approval."""
@@ -126,6 +130,26 @@ def call_tool(box: Toolbox, name: str, args: dict) -> dict:
     return out
 
 
+def compacted(messages: list[dict], digests: dict[int, str]) -> list[dict]:
+    """Context compaction: keep the latest tool results verbatim, shrink older ones to one-line
+    evidence summaries. Keeps every request small (free tiers cap tokens per request and per day)
+    without losing the evidence ids the final report must cite."""
+    tool_idx = [i for i, m in enumerate(messages) if m["role"] == "tool"]
+    old = set(tool_idx[:-KEEP_FULL_RESULTS]) if len(tool_idx) > KEEP_FULL_RESULTS else set()
+    return [
+        {**m, "content": digests[i]} if i in old and i in digests else m
+        for i, m in enumerate(messages)
+    ]
+
+
+def digest(name: str, output: dict, box: Toolbox) -> str:
+    ids = re.findall(r'"id": "([A-Z]\d+)"', json.dumps(output, default=str))
+    if not ids:
+        return f"(earlier {name} result, compacted) " + json.dumps(output, default=str)[:200]
+    lines = "; ".join(f"{i}: {box.evidence[i][:150]}" for i in ids if i in box.evidence)
+    return f"(earlier {name} result, compacted) {lines}"
+
+
 def investigate(incident: Incident, client: ChatClient, runbook_search=None) -> InvestigationResult:
     box = Toolbox(incident, runbook_search)
     tools = TOOL_SPECS + [SUBMIT_SPEC]
@@ -140,6 +164,7 @@ def investigate(incident: Incident, client: ChatClient, runbook_search=None) -> 
     result = InvestigationResult(incident=incident.id, model=client.model, report=None)
     started = time.time()
     report_retries = 0
+    digests: dict[int, str] = {}
     for step in range(MAX_STEPS + 1):
         force = step == MAX_STEPS
         if force:
@@ -147,7 +172,7 @@ def investigate(incident: Incident, client: ChatClient, runbook_search=None) -> 
                 {"role": "user", "content": "Step budget reached: submit your report now."}
             )
         msg = client.chat(
-            messages,
+            compacted(messages, digests),
             tools=[SUBMIT_SPEC] if force else tools,
             tool_choice={"type": "function", "function": {"name": "submit_report"}}
             if force
@@ -202,6 +227,7 @@ def investigate(incident: Incident, client: ChatClient, runbook_search=None) -> 
             result.steps.append(
                 {"tool": name, "args": args, "result": output, "thought": msg.get("content")}
             )
+            digests[len(messages)] = digest(name, output, box)
             messages.append(
                 {
                     "role": "tool",
