@@ -34,10 +34,9 @@ SLOW_QUERY_MS = 500
 
 @app.on_event("startup")
 def open_pool() -> None:
-    try:
-        pool.open(wait=True, timeout=10)
-    except psycopg_pool.PoolTimeout:
-        log.error("could not open database pool at startup", extra={"dependency": "postgres"})
+    # Non-blocking: if the database is not reachable yet, the pool keeps reconnecting in the
+    # background instead of failing permanently.
+    pool.open(wait=False)
 
 
 def update_pool_gauges() -> None:

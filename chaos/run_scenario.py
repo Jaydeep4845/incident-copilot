@@ -9,6 +9,7 @@ Needs Docker and PyYAML; designed for a GitHub Actions ubuntu runner.
 
 from __future__ import annotations
 
+import json
 import random
 import shutil
 import subprocess
@@ -54,6 +55,30 @@ def wait_http(url: str, timeout_s: float = 180) -> None:
         except Exception:
             time.sleep(2)
     raise TimeoutError(f"{url} not ready after {timeout_s}s")
+
+
+def wait_end_to_end(timeout_s: float = 240) -> None:
+    """Block until a real order lookup and a real checkout succeed through the whole system."""
+    body = json.dumps(
+        {"user_id": 1, "sku": "SKU-001", "qty": 1, "amount": 10.0, "currency": "USD"}
+    ).encode()
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen("http://localhost:8000/orders/1", timeout=5):
+                pass
+            req = urllib.request.Request(
+                "http://localhost:8000/checkout",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10):
+                log("end-to-end check passed")
+                return
+        except Exception:
+            time.sleep(3)
+    raise TimeoutError("system never became healthy end to end")
 
 
 def run_step(step: dict, deploys: list[dict]) -> None:
@@ -110,6 +135,7 @@ def main(scenario_id: str, out_dir: str) -> None:
     log(f"scenario {scenario_id}: starting system")
     compose("up", "-d", "--build")
     wait_http("http://localhost:8000/health")
+    wait_end_to_end()
     wait_http("http://localhost:9090/-/ready")
     log(f"warm-up {defaults['warmup_s']}s")
     time.sleep(defaults["warmup_s"])
@@ -139,6 +165,9 @@ def main(scenario_id: str, out_dir: str) -> None:
     }
     record(out, t_start - 60, t_end, meta, deploys, compose)
     compose("down", "-v", check=False)
+    if not meta["baseline"]["healthy"]:
+        log(f"WARNING: unhealthy baseline {meta['baseline']}")
+        sys.exit(2)
     log(f"done: {out}")
 
 

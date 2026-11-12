@@ -23,7 +23,9 @@ services:
     command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=256MB"]
     volumes: ["./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d shop"]
+      # TCP check against the real server (the image's temporary init server only listens on a
+      # socket) plus a query on seeded data, so services start once the database is usable.
+      test: ["CMD-SHELL", "psql -h 127.0.0.1 -U app -d shop -tAc 'SELECT 1 FROM inventory LIMIT 1' | grep -q 1"]
       interval: 2s
       retries: 60
 

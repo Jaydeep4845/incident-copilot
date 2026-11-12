@@ -10,6 +10,7 @@ Output directory:
 
 from __future__ import annotations
 
+import gzip
 import json
 import random
 import urllib.parse
@@ -154,42 +155,70 @@ def record_traces(traces_file: Path, start: float, keep_ok: float = 0.1) -> list
                     )
     rng = random.Random(0)
     traces = []
-    for trace_id, spans in spans_by_trace.items():
+    # Per minute and root operation keep a few error, slow and normal traces: enough evidence
+    # for an investigation without storing every request.
+    budget: dict[tuple, int] = defaultdict(int)
+    caps = {"error": 15, "slow": 15, "ok": 5}
+    items = list(spans_by_trace.items())
+    rng.shuffle(items)
+    for trace_id, spans in items:
         spans.sort(key=lambda s: s["start"])
         root = next((s for s in spans if s["parent_id"] is None), spans[0])
-        interesting = any(s["error"] for s in spans) or root["duration_ms"] > 500
-        if interesting or rng.random() < keep_ok:
-            traces.append(
-                {
-                    "trace_id": trace_id,
-                    "start": root["start"],
-                    "root": f"{root['service']} {root['name']}",
-                    "duration_ms": root["duration_ms"],
-                    "error": any(s["error"] for s in spans),
-                    "spans": spans,
-                }
-            )
+        error = any(s["error"] for s in spans)
+        kind = "error" if error else "slow" if root["duration_ms"] > 500 else "ok"
+        if kind == "ok" and rng.random() > keep_ok:
+            continue
+        key = (root["start"][:16], root["service"], root["name"], kind)
+        if budget[key] >= caps[kind]:
+            continue
+        budget[key] += 1
+        traces.append(
+            {
+                "trace_id": trace_id,
+                "start": root["start"],
+                "root": f"{root['service']} {root['name']}",
+                "duration_ms": root["duration_ms"],
+                "error": error,
+                "spans": spans,
+            }
+        )
     return sorted(traces, key=lambda t: t["start"])
+
+
+def baseline_health(metrics: dict, start: float, fault: float) -> dict:
+    """Error ratio per service during the baseline; a recording is valid only if it is low."""
+    health = {}
+    for series in metrics["error_ratio"]["series"]:
+        vals = [v for t, v in series["values"] if start + 30 <= t < fault]
+        health[series["labels"].get("job", "?")] = round(sum(vals) / len(vals), 4) if vals else None
+    worst = max((v for v in health.values() if v is not None), default=0.0)
+    return {"error_ratio_by_service": health, "healthy": worst < 0.03}
+
+
+def write_jsonl_gz(path: Path, rows: list[dict]) -> None:
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
 
 
 def record(out: Path, start: float, end: float, meta: dict, deploys: list[dict], compose) -> None:
     metrics = record_metrics(start, end)
     meta["alerts"] = fired_alerts(start, end)
+    window_start = datetime.fromisoformat(meta["window"]["start"]).timestamp()
+    fault = datetime.fromisoformat(meta["window"]["fault"]).timestamp()
+    meta["baseline"] = baseline_health(metrics, window_start, fault)
     (out / "metrics.json").write_text(json.dumps(metrics))
     (out / "deploys.json").write_text(json.dumps(deploys, indent=2))
     (out / "scenario.json").write_text(json.dumps(meta, indent=2))
     logs = record_logs(compose, start)
-    with (out / "logs.jsonl").open("w") as f:
-        for row in logs:
-            f.write(json.dumps(row) + "\n")
+    write_jsonl_gz(out / "logs.jsonl.gz", logs)
     traces = record_traces(
         Path(__file__).resolve().parents[1] / "infra" / "out" / "traces.jsonl", start
     )
-    with (out / "traces.jsonl").open("w") as f:
-        for t in traces:
-            f.write(json.dumps(t) + "\n")
+    write_jsonl_gz(out / "traces.jsonl.gz", traces)
     print(
         f"recorded: {len(metrics)} metric queries, {len(meta['alerts'])} alerts, "
-        f"{len(logs)} log lines, {len(traces)} traces, {len(deploys)} deploys",
+        f"{len(logs)} log lines, {len(traces)} traces, {len(deploys)} deploys, "
+        f"baseline healthy: {meta['baseline']['healthy']}",
         flush=True,
     )
