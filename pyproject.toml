@@ -35,6 +35,8 @@ select = ["E", "F", "I", "UP", "B"]
 # prompts and tool descriptions are prose for the LLM
 "agent/investigate.py" = ["E501"]
 "agent/tools.py" = ["E501"]
+"agent/baselines.py" = ["E501"]
+"agent/benchmark.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

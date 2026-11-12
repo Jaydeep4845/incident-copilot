@@ -26,6 +26,10 @@ INFRA = ROOT / "infra"
 sys.path.insert(0, str(ROOT / "chaos"))
 from record import record  # noqa: E402
 
+# Environment switches that stand in for code changes in the simulated services. A real deploy log
+# would show a code diff here, not a setting, so they are not reported as configuration changes.
+CODE_FLAGS = {"CURRENCY_BUG", "AUDIT_LEAK_KB"}
+
 
 def log(msg: str) -> None:
     print(f"[{datetime.now(UTC):%H:%M:%S}] {msg}", flush=True)
@@ -99,7 +103,7 @@ def run_step(step: dict, deploys: list[dict]) -> None:
                 "to_version": str(step["version"]),
                 "change": step["change"],
                 "commit": f"{random.getrandbits(28):07x}",
-                "config_changed": sorted(step.get("set", {}).keys()),
+                "config_changed": sorted(set(step.get("set", {})) - CODE_FLAGS),
             }
         )
         log(f"deployed {svc} {old} -> {step['version']}")

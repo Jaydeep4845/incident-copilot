@@ -16,3 +16,4 @@ node_modules/
 .next/
 data/raw/
 runs/
+results/
