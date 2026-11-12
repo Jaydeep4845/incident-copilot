@@ -25,3 +25,16 @@ groups:
         labels: { severity: page }
         annotations:
           summary: "{{ $labels.job }}: metrics endpoint unreachable"
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes > 250e6
+        for: 30s
+        labels: { severity: page }
+        annotations:
+          summary: "{{ $labels.job }}: memory above 250 MB (container limit 300 MB)"
+
+      - alert: ServiceRestarted
+        expr: changes(process_start_time_seconds[2m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "{{ $labels.job }}: process restarted in the last 2 minutes"

@@ -43,6 +43,7 @@ QUERIES = {
     "memory_rss_mb": "process_resident_memory_bytes / 1e6",
     "cpu_cores": f"rate(process_cpu_seconds_total[{W}])",
     "up": "up",
+    "restarts": "changes(process_start_time_seconds[1m])",
 }
 APP_SERVICES = ["gateway", "orders", "inventory", "payments"]
 

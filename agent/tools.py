@@ -26,6 +26,7 @@ METRICS = {
     "memory_rss_mb": "resident memory in MB, by service",
     "cpu_cores": "CPU cores used, by service",
     "up": "1 if the service's metrics endpoint is reachable, by service",
+    "restarts": "process restarts in the last minute, by service",
 }
 RUNBOOK_DIR = Path(__file__).resolve().parents[1] / "runbooks"
 

@@ -28,10 +28,10 @@ scenarios:
     ground_truth:
       category: bad_deploy_config
       component: orders
-      summary: orders 1.9.0 cut the DB pool to 2 connections; checkouts hold a connection across calls, so the pool runs out.
+      summary: orders 1.9.0 cut the DB pool to 1 connection; checkouts hold a connection across calls, so the pool runs out.
     steps:
-      - { at: 0, action: deploy, service: orders, version: 1.9.0, set: { DB_POOL_SIZE: "2" },
-          change: "Lower DB connections per instance to fit new connection budget" }
+      - { at: 0, action: deploy, service: orders, version: 1.9.0, set: { DB_POOL_SIZE: "1" },
+          change: "Lower DB connections per instance to 1 to fit the new PgBouncer connection budget" }
 
   - id: migration-drops-index
     difficulty: medium
