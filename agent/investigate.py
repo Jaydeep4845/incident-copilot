@@ -5,6 +5,7 @@ No agent framework: the control flow is small and explicit, which makes it easy 
 
 from __future__ import annotations
 
+import inspect
 import json
 import time
 from dataclasses import dataclass, field
@@ -24,12 +25,15 @@ in a small e-commerce system. You can only learn about the system through the to
 
 How to work:
 - Start from the alert, then get an overview of all services before going deep.
+- Early on, scan ERROR and WARNING logs across all services (search_logs without a service filter):
+  log messages often name the failing dependency and the error type directly.
 - Separate symptoms from the root cause. The service that paged is often not the cause: follow the
   dependency chain (describe_system) to where the problem starts.
 - Check recent deploys, but treat a deploy as the cause only if the timing AND the failing behaviour point
   to it (for example, errors from the deployed service's own code or settings). Unrelated deploys happen.
 - Confirm a hypothesis with at least two independent kinds of evidence (metrics, logs, traces, deploys).
-- Be efficient: a few targeted tool calls are better than many broad ones.
+- If you are unsure what a symptom means, search the runbooks.
+- Be efficient: a few targeted tool calls are better than many broad ones; do not repeat a call.
 
 When you are confident, call submit_report. Cite only evidence ids returned by tools (M, L, T, D, R, O).
 The remediation must be one of the allowed actions and always needs human approval."""
@@ -110,10 +114,15 @@ def call_tool(box: Toolbox, name: str, args: dict) -> dict:
     fn = getattr(box, name, None)
     if fn is None or name.startswith("_"):
         return {"error": f"unknown tool {name}"}
+    accepted = set(inspect.signature(fn).parameters)
+    ignored = sorted(set(args) - accepted)
     try:
-        return fn(**args)
-    except TypeError as exc:
+        out = fn(**{k: v for k, v in args.items() if k in accepted})
+    except (TypeError, ValueError) as exc:
         return {"error": f"bad arguments for {name}: {exc}"}
+    if ignored and isinstance(out, dict):
+        out = {**out, "note": f"ignored unsupported arguments {ignored}"}
+    return out
 
 
 def investigate(incident: Incident, client: ChatClient, runbook_search=None) -> InvestigationResult:

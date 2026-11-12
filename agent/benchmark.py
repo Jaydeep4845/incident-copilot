@@ -66,6 +66,9 @@ def bench(root: Path, systems: list[str], runs: int, provider: str) -> None:
                 except QuotaExhausted as exc:
                     print(f"{system}: daily quota used up, stopping this system ({exc})")
                     break
+                except Exception as exc:  # API errors: record and move on, retry on the next run
+                    print(f"{system} {inc.id}: error {type(exc).__name__}: {str(exc)[:300]}")
+                    continue
                 rec = asdict(res) | {
                     "system": system,
                     "run": run,

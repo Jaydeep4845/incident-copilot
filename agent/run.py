@@ -21,9 +21,13 @@ from agent.telemetry import Incident
 def score(report: dict | None, truth: dict) -> dict:
     if not report:
         return {"category": False, "component": False, "correct": False}
-    cat = report["cause_category"] == truth["category"]
-    comp = report["component"] == truth["component"]
-    return {"category": cat, "component": comp, "correct": cat and comp}
+    answers = [truth] + truth.get("also_accept", [])
+    pred = (report["cause_category"], report["component"])
+    cat = any(pred[0] == a["category"] for a in answers)
+    comp = any(pred[1] == a["component"] for a in answers)
+    primary = pred == (truth["category"], truth["component"])
+    correct = any(pred == (a["category"], a["component"]) for a in answers)
+    return {"category": cat, "component": comp, "correct": correct, "primary": primary}
 
 
 def main() -> None:

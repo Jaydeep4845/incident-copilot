@@ -125,7 +125,16 @@ class Toolbox:
             }
             summary["id"] = self._id("M", f"{metric} {s['labels']}: {summary}")
             out.append(summary)
-        return {"metric": metric, "series": out[:12]} if out else {"metric": metric, "series": []}
+        if out:
+            return {"metric": metric, "series": out[:12]}
+        available = sorted(
+            {v for s in self.inc.metric_series(metric) for v in s["labels"].values()}
+        )
+        return {
+            "metric": metric,
+            "series": [],
+            "note": f"no series match service={service!r}; label values available: {available}",
+        }
 
     def search_logs(
         self,

@@ -100,7 +100,11 @@ scenarios:
     ground_truth:
       category: bad_deploy_config
       component: gateway
-      summary: gateway 3.2.0 retries failed checkouts 4 times with no backoff; a small rise in provider errors is amplified into overload of orders.
+      summary: gateway 3.2.0 retries failed checkouts 4 times with no backoff; a provider degradation is amplified into overload of orders.
+      # Multi-cause incident: the provider degradation is the trigger, the retry config the amplifier.
+      also_accept:
+        - { category: dependency_down, component: payment-provider }
+        - { category: slow_dependency, component: payment-provider }
     steps:
       - { at: -40, action: deploy, service: gateway, version: 3.2.0, set: { CHECKOUT_RETRIES: "4", RETRY_BACKOFF_S: "0" },
           change: "Improve checkout resilience: retry failed orders up to 4 times" }

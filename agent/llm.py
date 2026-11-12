@@ -72,7 +72,8 @@ class ChatClient:
                 # occasional malformed tool call from the model: retry once
                 time.sleep(1)
                 continue
-            r.raise_for_status()
+            if r.status_code >= 400:
+                raise RuntimeError(f"{self.model}: HTTP {r.status_code}: {r.text[:300]}")
             data = r.json()
             self.usage.add(data.get("usage", {}))
             return data["choices"][0]["message"]
