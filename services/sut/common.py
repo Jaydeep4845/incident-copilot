@@ -155,12 +155,13 @@ def create_app() -> FastAPI:
                     extra={"route": path, "status": status, "duration_ms": round(elapsed * 1000)},
                 )
 
+    # async: served on the event loop, so metrics stay available even when worker threads are busy
     @app.get("/metrics")
-    def metrics() -> Response:
+    async def metrics() -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/health")
-    def health() -> dict:
+    async def health() -> dict:
         return {"service": SERVICE, "version": VERSION}
 
     @app.on_event("startup")

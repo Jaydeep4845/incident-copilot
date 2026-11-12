@@ -1,4 +1,4 @@
--- Seed data sized so that losing an index really hurts (2M orders, 50K users).
+-- Seed data sized so that losing an index really hurts (4M orders, 50K users).
 CREATE TABLE orders (
     id          bigserial PRIMARY KEY,
     user_id     integer      NOT NULL,
@@ -17,7 +17,7 @@ SELECT (random() * 49999)::int + 1,
        round((5 + random() * 295)::numeric, 2),
        (ARRAY['USD','USD','USD','EUR','INR'])[1 + (random() * 4)::int],
        now() - (random() * interval '365 days')
-FROM generate_series(1, 2000000);
+FROM generate_series(1, 4000000);
 
 CREATE INDEX idx_orders_user_id ON orders (user_id, created_at DESC);
 

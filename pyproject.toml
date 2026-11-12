@@ -31,5 +31,10 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# prompts and tool descriptions are prose for the LLM
+"agent/investigate.py" = ["E501"]
+"agent/tools.py" = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
